@@ -1,0 +1,354 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-node-role-labels
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: node-role-labels-infra
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates-raw: |
+            {{- range (lookup "v1" "Node" "" "").items }}
+            {{- if contains "in" .metadata.name }}       ## Looks for string 'inf' in hostname for infra nodes
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Node
+                metadata:
+                  name: {{ .metadata.name }}
+                  labels:
+                    node-role.kubernetes.io/infra: ""
+            {{- end }}
+            {{- end }}
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-node-taints
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: node-taints-infra
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates-raw: |
+            {{- range (lookup "v1" "Node" "" "").items }}
+            {{- if contains "in[1-3]" .metadata.name }}        ## Looks for 'inf' in the hostname to select nodes
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Node
+                metadata:
+                  name: {{ .metadata.name }}
+                spec:
+                  taints:
+                    - key: node-role.kubernetes.io/infra
+                      value: reserved
+                      effect: NoSchedule
+                    - key: node-role.kubernetes.io/infra
+                      value: reserved
+                      effect: NoExecute
+            {{- end }}
+            {{- end }}
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-kubelet-configs
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: kubelet-config-master
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: machineconfiguration.openshift.io/v1
+                kind: KubeletConfig
+                metadata:
+                  name: kubelet-config-master
+                spec:
+                  autoSizingReserved: true
+                  machineConfigPoolSelector:
+                    matchLabels:
+                      pools.operator.machineconfiguration.openshift.io/master: ""
+                  kubeletConfig:
+                    maxPods: 500
+                    nodeStatusMaxImages: -1
+                    kubeAPIBurst: 200
+                    kubeAPIQPS: 100
+                    evictionSoft:
+                      memory.available: "1Gi"
+                      nodefs.available: "10%"
+                      imagefs.available: "10%"
+                    evictionSoftGracePeriod:
+                      memory.available: "1m30s"
+                      nodefs.available: "1m30s"
+                      imagefs.available: "1m30s"
+                    evictionHard:
+                      memory.available: "500Mi"
+                      nodefs.available: "5%"
+                      imagefs.available: "5%"
+                    evictionPressureTransitionPeriod: 30s
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: kubelet-config-worker
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: machineconfiguration.openshift.io/v1
+                kind: KubeletConfig
+                metadata:
+                  name: kubelet-config-worker
+                spec:
+                  autoSizingReserved: true
+                  machineConfigPoolSelector:
+                    matchLabels:
+                      pools.operator.machineconfiguration.openshift.io/worker: ""
+                  kubeletConfig:
+                    maxPods: 500
+                    nodeStatusMaxImages: -1
+                    kubeAPIBurst: 200
+                    kubeAPIQPS: 100
+                    evictionSoft:
+                      memory.available: "1Gi"
+                      nodefs.available: "10%"
+                      imagefs.available: "10%"
+                    evictionSoftGracePeriod:
+                      memory.available: "1m30s"
+                      nodefs.available: "1m30s"
+                      imagefs.available: "1m30s"
+                    evictionHard:
+                      memory.available: "500Mi"
+                      nodefs.available: "5%"
+                      imagefs.available: "5%"
+                    evictionPressureTransitionPeriod: 30s
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-chrony
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: chrony-config-master
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: machineconfiguration.openshift.io/v1
+                kind: MachineConfig
+                metadata:
+                  name: 99-master-chrony
+                  labels:
+                    machineconfiguration.openshift.io/role: master
+                spec:
+                  config:
+                    ignition:
+                      version: 3.4.0
+                    storage:
+                      files:
+                        - path: /etc/chrony.conf
+                          mode: 0644
+                          contents:
+                            source: data:text/plain;charset=utf-8;base64,c2VydmVyIDAucmhlbC5wb29sLm50cC5vcmcKc2VydmVyIDEucmhlbC5wb29sLm50cC5vcmcKZHJpZnRmaWxlIC92YXIvbGliL2Nocm9ueS9kcmlmdAptYWtlc3RlcCAxLjAgMwpydGNzeW5jCmxvZ2RpciAvdmFyL2xvZy9jaHJvbnkK
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: chrony-config-worker
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: machineconfiguration.openshift.io/v1
+                kind: MachineConfig
+                metadata:
+                  name: 99-worker-chrony
+                  labels:
+                    machineconfiguration.openshift.io/role: worker
+                spec:
+                  config:
+                    ignition:
+                      version: 3.4.0
+                    storage:
+                      files:
+                        - path: /etc/chrony.conf
+                          mode: 0644
+                          contents:
+                            source: data:text/plain;charset=utf-8;base64,c2VydmVyIDAucmhlbC5wb29sLm50cC5vcmcKc2VydmVyIDEucmhlbC5wb29sLm50cC5vcmcKZHJpZnRmaWxlIC92YXIvbGliL2Nocm9ueS9kcmlmdAptYWtlc3RlcCAxLjAgMwpydGNzeW5jCmxvZ2RpciAvdmFyL2xvZy9jaHJvbnkK
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-timezone
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: timezone-config-master
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: machineconfiguration.openshift.io/v1
+                kind: MachineConfig
+                metadata:
+                  name: 99-master-timezone
+                  labels:
+                    machineconfiguration.openshift.io/role: master
+                spec:
+                  config:
+                    ignition:
+                      version: 3.4.0
+                    systemd:
+                      units:
+                        - name: custom-timezone.service
+                          enabled: true
+                          contents: |
+                            [Unit]
+                            Description=Set timezone
+                            After=network-online.target
+
+                            [Service]
+                            Type=oneshot
+                            ExecStart=timedatectl set-timezone Asia/Dubai
+
+                            [Install]
+                            WantedBy=multi-user.target
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: timezone-config-worker
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: machineconfiguration.openshift.io/v1
+                kind: MachineConfig
+                metadata:
+                  name: 99-worker-timezone
+                  labels:
+                    machineconfiguration.openshift.io/role: worker
+                spec:
+                  config:
+                    ignition:
+                      version: 3.4.0
+                    systemd:
+                      units:
+                        - name: custom-timezone.service
+                          enabled: true
+                          contents: |
+                            [Unit]
+                            Description=Set timezone
+                            After=network-online.target
+
+                            [Service]
+                            Type=oneshot
+                            ExecStart=timedatectl set-timezone Asia/Dubai
+
+                            [Install]
+                            WantedBy=multi-user.target
+...
+---
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: PolicySet
+metadata:
+  name: ps-node-config
+  namespace: rh-policies
+spec:
+  description: Node configuration including labels, taints, MCPs, and system settings
+  policies:
+    - policy-node-labels
+    - policy-node-taints
+    - policy-kubelet-configs
+    - policy-chrony
+    - policy-timezone
+...
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: all-clusters-placement
+  namespace: rhacm-policies
+spec:
+  predicates:
+    - requiredClusterSelector:
+        labelSelector: {}
+...
+---
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: PlacementBinding
+metadata:
+  name: pb-ps-node-config
+  namespace: rhacm-policies
+placementRef:
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+  name: all-clusters-placement
+subjects:
+  - apiGroup: policy.open-cluster-management.io
+    kind: PolicySet
+    name: ps-node-config
+...
