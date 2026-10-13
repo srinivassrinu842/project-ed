@@ -1,0 +1,160 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cronjob-etcd-backup
+  namespace: etcd-bkp
+  labels:
+    app.kubernetes.io/name: cronjob-etcd-backup
+spec:
+  # Schedule: Daily at 01:00 UTC (during off-peak hours)
+  schedule: "0 1 * * *"
+  concurrencyPolicy: Forbid
+  suspend: false
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cronjob-etcd-backup
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: cronjob-etcd-backup
+        spec:
+          nodeSelector:
+            node-role.kubernetes.io/master: ''
+          restartPolicy: Never
+          serviceAccountName: cronjob-etcd-bkp-sa
+          hostPID: true
+          hostNetwork: true
+          tolerations:
+          - key: node-role.kubernetes.io/master
+            operator: Exists
+            effect: NoSchedule
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+
+          # ========================================================
+          # Step 1: Take the backup on the Master node
+          # ========================================================
+          initContainers:
+          - name: etcd-backup
+            # Pinned to OpenShift 4.20 (matches your OCP 4.20.36 cluster)
+            image: registry.redhat.io/openshift4/ose-cli
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/bash
+            - '-c'
+            - |
+              set -eo pipefail
+              TIMESTAMP="$(date +%F_%H%M%S)"
+              BKP_DIR="/home/core/backup/${TIMESTAMP}"
+
+              echo "Creating backup directory: ${BKP_DIR} on master host..."
+              chroot /host mkdir -p "${BKP_DIR}"
+
+              echo "Executing cluster-backup.sh..."
+              chroot /host /usr/local/bin/cluster-backup.sh "${BKP_DIR}"
+
+              echo "Recording latest backup timestamp..."
+              echo "${TIMESTAMP}" > /host/home/core/backup/.latest_backup
+              echo "Local backup generation complete."
+            securityContext:
+              privileged: true
+              runAsUser: 0
+              capabilities:
+                add:
+                - SYS_CHROOT
+            volumeMounts:
+            - name: host
+              mountPath: /host
+
+          # ========================================================
+          # Step 2: Split and upload to the 2 separate S3 buckets
+          # ========================================================
+          containers:
+          - name: aws-s3-upload
+            # Pinned to specific AWS CLI v2 release
+            image: amazon/aws-cli:latest
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/bash
+            - '-c'
+            - |
+              set -eo pipefail
+
+              if [ ! -f /host/home/core/backup/.latest_backup ]; then
+                echo "Error: .latest_backup marker file not found!"
+                exit 1
+              fi
+
+              TIMESTAMP=$(cat /host/home/core/backup/.latest_backup)
+              BKP_DIR="/host/home/core/backup/${TIMESTAMP}"
+
+              echo "Starting S3 split uploads for backup: ${TIMESTAMP}..."
+
+              # 1. Upload snapshot db to Bucket A
+              SNAP_FILE=$(find "${BKP_DIR}" -name "snapshot_*.db" | head -n 1)
+              if [ -n "${SNAP_FILE}" ]; then
+                echo "Uploading snapshot: ${SNAP_FILE} -> s3://${S3_BUCKET_SNAPSHOT}/"
+                aws s3 cp "${SNAP_FILE}" "s3://${S3_BUCKET_SNAPSHOT}/${TIMESTAMP}/"
+              else
+                echo "Error: No snapshot_*.db file found in ${BKP_DIR}!"
+                exit 1
+              fi
+
+              # 2. Upload static resources to Bucket B
+              STATIC_FILE=$(find "${BKP_DIR}" -name "static_kuberesources_*.tar.gz" | head -n 1)
+              if [ -n "${STATIC_FILE}" ]; then
+                echo "Uploading static resources: ${STATIC_FILE} -> s3://${S3_BUCKET_STATIC}/"
+                aws s3 cp "${STATIC_FILE}" "s3://${S3_BUCKET_STATIC}/${TIMESTAMP}/"
+              else
+                echo "Error: No static_kuberesources_*.tar.gz found in ${BKP_DIR}!"
+                exit 1
+              fi
+
+              # 3. Clean up marker and local backups older than 2 days on host
+              rm -f /host/home/core/backup/.latest_backup
+              echo "Cleaning local backups older than 2 days on host..."
+              find /host/home/core/backup/ -mindepth 1 -maxdepth 1 -type d -mtime +2 -exec rm -rf {} +
+
+              echo "All backups successfully uploaded and verified in both S3 buckets."
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-s3-etcd-config
+                  key: aws_access_key_id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-s3-etcd-config
+                  key: aws_secret_access_key
+            - name: AWS_DEFAULT_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: aws-s3-etcd-config
+                  key: region
+            - name: S3_BUCKET_SNAPSHOT
+              valueFrom:
+                secretKeyRef:
+                  name: aws-s3-etcd-config
+                  key: s3_bucket_snapshot
+            - name: S3_BUCKET_STATIC
+              valueFrom:
+                secretKeyRef:
+                  name: aws-s3-etcd-config
+                  key: s3_bucket_static
+            volumeMounts:
+            - name: host
+              mountPath: /host
+
+          volumes:
+          - name: host
+            hostPath:
+              path: /
+              type: Directory
