@@ -1,0 +1,472 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-etcd-backup-ns
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: etcd-backup-namespace
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: etcd-backup
+                  labels:
+                    app.kubernetes.io/name: cronjob-etcd-backup
+                    security.openshift.io/scc.podSecurityLabelSync: "false"
+                    pod-security.kubernetes.io/enforce: privileged
+                    pod-security.kubernetes.io/audit: privileged
+                    pod-security.kubernetes.io/warn: privileged
+                  annotations:
+                    openshift.io/node-selector: ''
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-etcd-backup-sa
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: etcd-backup-serviceaccount
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: ServiceAccount
+                metadata:
+                  name: cronjob-etcd-bkp-sa
+                  namespace: etcd-backup
+                  labels:
+                    app.kubernetes.io/name: cronjob-etcd-backup
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-etcd-backup-clusterrole
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: etcd-backup-clusterrole
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRole
+                metadata:
+                  name: cronjob-etcd-bkp-cr
+                  labels:
+                    app.kubernetes.io/name: cronjob-etcd-backup
+                rules:
+                  - apiGroups:
+                      - ''
+                    resources:
+                      - nodes
+                    verbs:
+                      - get
+                      - list
+                  - apiGroups:
+                      - ''
+                    resources:
+                      - namespaces
+                      - pods
+                      - pods/log
+                    verbs:
+                      - get
+                      - list
+                      - create
+                      - delete
+                      - watch
+                  - apiGroups:
+                      - security.openshift.io
+                    resourceNames:
+                      - privileged
+                    resources:
+                      - securitycontextconstraints
+                    verbs:
+                      - use
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-etcd-backup-rolebinding
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: etcd-backup-clusterrolebinding
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: rbac.authorization.k8s.io/v1
+                kind: ClusterRoleBinding
+                metadata:
+                  name: cronjob-etcd-bkp-crb
+                  labels:
+                    app.kubernetes.io/name: cronjob-etcd-backup
+                roleRef:
+                  apiGroup: rbac.authorization.k8s.io
+                  kind: ClusterRole
+                  name: cronjob-etcd-bkp-cr
+                subjects:
+                  - kind: ServiceAccount
+                    name: cronjob-etcd-bkp-sa
+                    namespace: etcd-backup
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-etcd-backup-s3-secret
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: etcd-backup-s3-secret
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: high
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Secret
+                metadata:
+                  name: aws-s3-etcd-config
+                  namespace: etcd-backup
+                  labels:
+                    app.kubernetes.io/name: cronjob-etcd-backup
+                type: Opaque
+                stringData:
+                  # --- Bucket 1: Snapshot DB ---
+                  snap_aws_access_key_id: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "snap_aws_access_key_id" hub}}'
+                  snap_aws_secret_access_key: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "snap_aws_secret_access_key" hub}}'
+                  snap_region: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "snap_region" hub}}'
+                  snap_s3_bucket: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "snap_s3_bucket" hub}}'
+                  snap_s3_endpoint_url: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "snap_s3_endpoint_url" hub}}'
+
+                  # --- Bucket 2: Static Pod Resources & Keys ---
+                  static_aws_access_key_id: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "static_aws_access_key_id" hub}}'
+                  static_aws_secret_access_key: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "static_aws_secret_access_key" hub}}'
+                  static_region: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "static_region" hub}}'
+                  static_s3_bucket: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "static_s3_bucket" hub}}'
+                  static_s3_endpoint_url: '{{hub fromSecret "rhacm-policies" (printf "%s-etcd-s3-creds" .ManagedClusterName) "static_s3_endpoint_url" hub}}'
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-etcd-backup-cronjob
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: etcd-backup-cronjob
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: batch/v1
+                kind: CronJob
+                metadata:
+                  name: cronjob-etcd-backup
+                  namespace: etcd-backup
+                  labels:
+                    app.kubernetes.io/name: cronjob-etcd-backup
+                spec:
+                  schedule: "0 * * * *"
+                  concurrencyPolicy: Forbid
+                  suspend: false
+                  successfulJobsHistoryLimit: 3
+                  failedJobsHistoryLimit: 3
+                  jobTemplate:
+                    metadata:
+                      labels:
+                        app.kubernetes.io/name: cronjob-etcd-backup
+                    spec:
+                      backoffLimit: 0
+                      activeDeadlineSeconds: 900
+                      template:
+                        metadata:
+                          labels:
+                            app.kubernetes.io/name: cronjob-etcd-backup
+                        spec:
+                          nodeSelector:
+                            node-role.kubernetes.io/control-plane: ''
+                          restartPolicy: Never
+                          serviceAccountName: cronjob-etcd-bkp-sa
+                          hostPID: true
+                          hostNetwork: true
+                          tolerations:
+                          - key: node-role.kubernetes.io/master
+                            operator: Exists
+                            effect: NoSchedule
+                          - key: node-role.kubernetes.io/control-plane
+                            operator: Exists
+                            effect: NoSchedule
+
+                          initContainers:
+                          - name: etcd-backup
+                            image: registry.redhat.io/openshift4/ose-cli
+                            imagePullPolicy: IfNotPresent
+                            command:
+                            - /bin/bash
+                            - '-c'
+                            - |
+                              set -eo pipefail
+                              TIMESTAMP="$(date +%F_%H%M%S)"
+                              BKP_DIR="/home/core/backup/${TIMESTAMP}"
+
+                              echo "Creating backup directory: ${BKP_DIR} on master host..."
+                              chroot /host mkdir -p "${BKP_DIR}"
+
+                              echo "Executing cluster-backup.sh..."
+                              chroot /host /usr/local/bin/cluster-backup.sh "${BKP_DIR}"
+
+                              echo "${TIMESTAMP}" > /host/home/core/backup/.latest_backup
+                              echo "Local backup generation completed successfully."
+                            securityContext:
+                              privileged: true
+                              runAsUser: 0
+                              capabilities:
+                                add:
+                                - SYS_CHROOT
+                            volumeMounts:
+                            - name: host
+                              mountPath: /host
+
+                          containers:
+                          - name: aws-s3-upload
+                            image: docker.io/amazon/aws-cli:latest
+                            imagePullPolicy: IfNotPresent
+                            command:
+                            - /bin/bash
+                            - '-c'
+                            - |
+                              set -eo pipefail
+
+                              if [ ! -f /host/home/core/backup/.latest_backup ]; then
+                                echo "Error: .latest_backup marker file not found!"
+                                exit 1
+                              fi
+
+                              TIMESTAMP=$(cat /host/home/core/backup/.latest_backup)
+                              BKP_DIR="/host/home/core/backup/${TIMESTAMP}"
+
+                              # ----------------------------------------------------
+                              # 1. Upload Snapshot DB to Bucket 1 (Snapshot Creds)
+                              # ----------------------------------------------------
+                              echo "--- Uploading Snapshot to S3 (Bucket 1) ---"
+                              export AWS_ACCESS_KEY_ID=$(echo -n "$SNAP_AWS_ACCESS_KEY_ID" | tr -d '\r\n ')
+                              export AWS_SECRET_ACCESS_KEY=$(echo -n "$SNAP_AWS_SECRET_ACCESS_KEY" | tr -d '\r\n ')
+                              export AWS_DEFAULT_REGION=$(echo -n "${SNAP_REGION:-us-east-1}" | tr -d '\r\n ')
+
+                              SNAP_ENDPOINT=""
+                              if [ -n "$SNAP_S3_ENDPOINT_URL" ]; then
+                                SNAP_ENDPOINT="--endpoint-url ${SNAP_S3_ENDPOINT_URL}"
+                              fi
+
+                              SNAP_FILE=$(find "${BKP_DIR}" -name "snapshot_*.db" | head -n 1)
+                              if [ -z "${SNAP_FILE}" ]; then
+                                echo "Error: snapshot_*.db not found in ${BKP_DIR}!"
+                                exit 1
+                              fi
+
+                              echo "Uploading ${SNAP_FILE} -> s3://${SNAP_S3_BUCKET}/${TIMESTAMP}/"
+                              aws ${SNAP_ENDPOINT} s3 cp "${SNAP_FILE}" "s3://${SNAP_S3_BUCKET}/${TIMESTAMP}/"
+
+                              # ----------------------------------------------------
+                              # 2. Upload Static Resources to Bucket 2 (Static Creds)
+                              # ----------------------------------------------------
+                              echo "--- Uploading Static Keys to S3 (Bucket 2) ---"
+                              export AWS_ACCESS_KEY_ID=$(echo -n "$STATIC_AWS_ACCESS_KEY_ID" | tr -d '\r\n ')
+                              export AWS_SECRET_ACCESS_KEY=$(echo -n "$STATIC_AWS_SECRET_ACCESS_KEY" | tr -d '\r\n ')
+                              export AWS_DEFAULT_REGION=$(echo -n "${STATIC_REGION:-us-east-1}" | tr -d '\r\n ')
+
+                              STATIC_ENDPOINT=""
+                              if [ -n "$STATIC_S3_ENDPOINT_URL" ]; then
+                                STATIC_ENDPOINT="--endpoint-url ${STATIC_S3_ENDPOINT_URL}"
+                              fi
+
+                              STATIC_FILE=$(find "${BKP_DIR}" -name "static_kuberesources_*.tar.gz" | head -n 1)
+                              if [ -z "${STATIC_FILE}" ]; then
+                                echo "Error: static_kuberesources_*.tar.gz not found in ${BKP_DIR}!"
+                                exit 1
+                              fi
+
+                              echo "Uploading ${STATIC_FILE} -> s3://${STATIC_S3_BUCKET}/${TIMESTAMP}/"
+                              aws ${STATIC_ENDPOINT} s3 cp "${STATIC_FILE}" "s3://${STATIC_S3_BUCKET}/${TIMESTAMP}/"
+
+                              # ----------------------------------------------------
+                              # 3. Cleanup local host backups older than 2 days
+                              # ----------------------------------------------------
+                              rm -f /host/home/core/backup/.latest_backup
+                              echo "Cleaning local backups older than 2 days on host..."
+                              find /host/home/core/backup/ -mindepth 1 -maxdepth 1 -type d -mtime +2 -exec rm -rf {} +
+
+                              echo "Backup synced successfully to both S3 buckets."
+                            env:
+                            - name: SNAP_AWS_ACCESS_KEY_ID
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: snap_aws_access_key_id
+                            - name: SNAP_AWS_SECRET_ACCESS_KEY
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: snap_aws_secret_access_key
+                            - name: SNAP_REGION
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: snap_region
+                            - name: SNAP_S3_BUCKET
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: snap_s3_bucket
+                            - name: SNAP_S3_ENDPOINT_URL
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: snap_s3_endpoint_url
+                            - name: STATIC_AWS_ACCESS_KEY_ID
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: static_aws_access_key_id
+                            - name: STATIC_AWS_SECRET_ACCESS_KEY
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: static_aws_secret_access_key
+                            - name: STATIC_REGION
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: static_region
+                            - name: STATIC_S3_BUCKET
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: static_s3_bucket
+                            - name: STATIC_S3_ENDPOINT_URL
+                              valueFrom:
+                                secretKeyRef:
+                                  name: aws-s3-etcd-config
+                                  key: static_s3_endpoint_url
+                            volumeMounts:
+                            - name: host
+                              mountPath: /host
+
+                          volumes:
+                          - name: host
+                            hostPath:
+                              path: /
+                              type: Directory
+...
+---
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: PolicySet
+metadata:
+  name: ps-etcd
+  namespace: rhacm-policies
+spec:
+  description: Automated dual-bucket S3 etcd backup pipeline
+  policies:
+    - policy-etcd-backup-ns
+    - policy-etcd-backup-sa
+    - policy-etcd-backup-clusterrole
+    - policy-etcd-backup-rolebinding
+    - policy-etcd-backup-s3-secret
+    - policy-etcd-backup-cronjob
+...
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: placement-etcd-backup
+  namespace: rhacm-policies
+spec:
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - key: vendor
+              operator: In
+              values:
+                - OpenShift
+...
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: binding-ps-etcd
+  namespace: rhacm-policies
+placementRef:
+  name: placement-etcd-backup
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+subjects:
+  - name: ps-etcd
+    apiGroup: policy.open-cluster-management.io
+    kind: PolicySet
