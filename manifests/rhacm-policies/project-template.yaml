@@ -1,0 +1,175 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-project-template
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: default-project-template
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: template.openshift.io/v1
+                kind: Template
+                metadata:
+                  name: project-request
+                  namespace: openshift-config
+                objects:
+                  - apiVersion: networking.k8s.io/v1
+                    kind: NetworkPolicy
+                    metadata:
+                      name: allow-from-same-namespace
+                    spec:
+                      ingress:
+                        - from:
+                            - podSelector: {}
+                      podSelector: {}
+                  - apiVersion: networking.k8s.io/v1
+                    kind: NetworkPolicy
+                    metadata:
+                      name: allow-from-openshift-ingress
+                    spec:
+                      ingress:
+                        - from:
+                            - namespaceSelector:
+                                matchLabels:
+                                  network.openshift.io/policy-group: ingress
+                      podSelector: {}
+                      policyTypes:
+                        - Ingress
+                  - apiVersion: networking.k8s.io/v1
+                    kind: NetworkPolicy
+                    metadata:
+                      name: allow-from-kube-apiserver-operator
+                    spec:
+                      ingress:
+                        - from:
+                            - namespaceSelector:
+                                matchLabels:
+                                  kubernetes.io/metadata.name: openshift-kube-apiserver-operator
+                              podSelector:
+                                matchLabels:
+                                  app: kube-apiserver-operator
+                      policyTypes:
+                        - Ingress
+                  - apiVersion: networking.k8s.io/v1
+                    kind: NetworkPolicy
+                    metadata:
+                      name: allow-from-openshift-monitoring
+                    spec:
+                      ingress:
+                        - from:
+                            - namespaceSelector:
+                                matchLabels:
+                                  network.openshift.io/policy-group: monitoring
+                      podSelector: {}
+                      policyTypes:
+                        - Ingress
+                  - apiVersion: v1
+                    kind: ResourceQuota
+                    metadata:
+                      name: compute-resources
+                    spec:
+                      hard:
+                        limits.cpu: '4'
+                        limits.memory: 8Gi
+                        pods: 10
+                        requests.cpu: '2'
+                        requests.memory: 4Gi
+                        requests.storage: 50Gi
+                  - apiVersion: v1
+                    kind: LimitRange
+                    metadata:
+                      name: resource-limits
+                    spec:
+                      limits:
+                        - default:
+                            cpu: 300m
+                            memory: 200Mi
+                          defaultRequest:
+                            cpu: 200m
+                            memory: 100Mi
+                          max:
+                            cpu: '2'
+                            memory: 1Gi
+                          maxLimitRequestRatio:
+                            cpu: '50'
+                          min:
+                            cpu: 10m
+                            memory: 4Mi
+                          type: Container
+                        - max:
+                            openshift.io/image-tags: 20
+                            openshift.io/images: 30
+                          type: openshift.io/ImageStream
+                  - apiVersion: project.openshift.io/v1
+                    kind: Project
+                    metadata:
+                      annotations:
+                        openshift.io/description: ${PROJECT_DESCRIPTION}
+                        openshift.io/display-name: ${PROJECT_DISPLAYNAME}
+                        openshift.io/requester: ${PROJECT_REQUESTING_USER}
+                      name: ${PROJECT_NAME}
+                    spec: {}
+                    status: {}
+                  - apiVersion: rbac.authorization.k8s.io/v1
+                    kind: RoleBinding
+                    metadata:
+                      name: admin
+                      namespace: ${PROJECT_NAME}
+                    roleRef:
+                      apiGroup: rbac.authorization.k8s.io
+                      kind: ClusterRole
+                      name: admin
+                    subjects:
+                      - apiGroup: rbac.authorization.k8s.io
+                        kind: User
+                        name: ${PROJECT_ADMIN_USER}
+                parameters:
+                  - name: PROJECT_NAME
+                  - name: PROJECT_DISPLAYNAME
+                  - name: PROJECT_DESCRIPTION
+                  - name: PROJECT_ADMIN_USER
+                  - name: PROJECT_REQUESTING_USER
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: default-project-template-request
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: config.openshift.io/v1
+                kind: Project
+                metadata:
+                  name: cluster
+                spec:
+                  projectRequestTemplate:
+                    name: project-request
+...
+---
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: PolicySet
+metadata:
+  name: ps-default-project
+  namespace: rhacm-policies
+spec:
+  description: Default project template configuration
+  policies:
+    - policy-project-template
+...
