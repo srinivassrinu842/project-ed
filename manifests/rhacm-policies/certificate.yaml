@@ -1,0 +1,63 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: policy-cluster-trusted-ca
+  namespace: rhacm-policies
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: trusted-ca-configmap
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: custom-ca
+                  namespace: openshift-config
+                data:
+                  ca-bundle.crt: |
+                    -----BEGIN CERTIFICATE-----
+                    <CERTIFICATE_DATA>
+                    -----END CERTIFICATE-----
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: cluster-proxy-trusted-ca
+        spec:
+          pruneObjectBehavior: None
+          remediationAction: enforce
+          severity: medium
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: config.openshift.io/v1
+                kind: Proxy
+                metadata:
+                  name: cluster
+                spec:
+                  trustedCA:
+                    name: custom-ca
+...
+---
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: PolicySet
+metadata:
+  name: ps-certificates
+  namespace: open-cluster-management-policies
+spec:
+  description: Cluster certificates configuration for Ingress, API and custom console
+  policies:
+    - policy-cluster-trusted-ca
+...
