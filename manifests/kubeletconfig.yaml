@@ -1,0 +1,97 @@
+apiVersion: machineconfiguration.openshift.io/v1
+kind: KubeletConfig
+metadata:
+  name: kubelet-configs-infra
+spec:
+  kubeletConfig:
+    eventRecordQPS: 0
+    evictionHard:
+      imagefs.available: 10%
+      imagefs.inodesFree: 5%
+      memory.available: 100Mi
+      nodefs.available: 10%
+      nodefs.inodesFree: 5%
+    imageGCHighThresholdPercent: 85
+    imageGCLowThresholdPercent: 80
+    makeIPTablesUtilChains: true
+    maxPods: 250
+    systemReserved:
+      cpu: 500m
+      memory: 3Gi
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/infra: ""
+  tlsSecurityProfile:
+    custom:
+      ciphers:
+      - ECDHE-ECDSA-AES128-GCM-SHA256
+      - ECDHE-RSA-AES128-GCM-SHA256
+      - ECDHE-ECDSA-AES256-GCM-SHA384
+      - ECDHE-RSA-AES256-GCM-SHA384
+      minTLSVersion: VersionTLS12
+    type: Custom
+apiVersion: machineconfiguration.openshift.io/v1
+kind: KubeletConfig
+metadata:
+  name: kubelet-configs-master
+spec:
+  kubeletConfig:
+    eventRecordQPS: 0
+    evictionHard:
+      imagefs.available: 10%
+      imagefs.inodesFree: 5%
+      memory.available: 100Mi
+      nodefs.available: 10%
+      nodefs.inodesFree: 5%
+    imageGCHighThresholdPercent: 85
+    imageGCLowThresholdPercent: 80
+    makeIPTablesUtilChains: true
+    maxPods: 250
+    systemReserved:
+      cpu: 500m
+      memory: 3Gi
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/master: ""
+  tlsSecurityProfile:
+    custom:
+      ciphers:
+      - ECDHE-ECDSA-AES128-GCM-SHA256
+      - ECDHE-RSA-AES128-GCM-SHA256
+      - ECDHE-ECDSA-AES256-GCM-SHA384
+      - ECDHE-RSA-AES256-GCM-SHA384
+      minTLSVersion: VersionTLS12
+    type: Custom
+apiVersion: machineconfiguration.openshift.io/v1
+kind: KubeletConfig
+metadata:
+  name: kubelet-configs-worker
+spec:
+  kubeletConfig:
+    eventRecordQPS: 0
+    evictionHard:
+      imagefs.available: 10%
+      imagefs.inodesFree: 5%
+      memory.available: 100Mi
+      nodefs.available: 10%
+      nodefs.inodesFree: 5%
+    imageGCHighThresholdPercent: 85
+    imageGCLowThresholdPercent: 80
+    makeIPTablesUtilChains: true
+    maxPods: 1000
+    runtimeRequestTimeout: 10m
+    systemReserved:
+      cpu: 2000m
+      memory: 22Gi
+  machineConfigPoolSelector:
+    matchLabels:
+      pools.operator.machineconfiguration.openshift.io/worker: ""
+  tlsSecurityProfile:
+    custom:
+      ciphers:
+      - ECDHE-ECDSA-AES128-GCM-SHA256
+      - ECDHE-RSA-AES128-GCM-SHA256
+      - ECDHE-ECDSA-AES256-GCM-SHA384
+      - ECDHE-RSA-AES256-GCM-SHA384
+      minTLSVersion: VersionTLS12
+    type: Custom
