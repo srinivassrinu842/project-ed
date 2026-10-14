@@ -1,0 +1,191 @@
+apiVersion: loki.grafana.com/v1
+kind: LokiStack
+metadata:
+  name: logging-loki
+  namespace: openshift-logging
+spec:
+  limits:
+    global:
+      ingestion:
+        ingestionBurstSize: 50
+        ingestionRate: 15
+      retention:
+        days: 30
+    tenants:
+      application:
+        retention:
+          days: 30
+          streams:
+          - days: 1
+            priority: 1
+            selector: '{kubernetes_namespace_name=~".+"}'
+      infra:
+        retention:
+          days: 30
+          streams:
+          - days: 1
+            priority: 1
+            selector: '{kubernetes_namespace_name=~"openshift-cluster.+"}'
+  managementState: Managed
+  size: 1x.extra-small
+  storage:
+    schemas:
+    - effectiveDate: "2024-10-01"
+      version: v13
+    secret:
+      credentialMode: static
+      name: logging-loki-bucket
+      type: s3
+    tls:
+      caName: loki-s3-ca
+  storageClassName: thin-csi
+  template:
+    compactor:
+      nodeSelector:
+        node-role.kubernetes.io/infra: ""
+    distributor:
+      nodeSelector:
+        node-role.kubernetes.io/infra: ""
+    gateway:
+      nodeSelector:
+        node-role.kubernetes.io/infra: ""
+    indexGateway:
+      nodeSelector:
+        node-role.kubernetes.io/infra: ""
+    ingester:
+      nodeSelector:
+        node-role.kubernetes.io/infra: ""
+    querier:
+      nodeSelector:
+        node-role.kubernetes.io/infra: ""
+    queryFrontend:
+      nodeSelector:
+        node-role.kubernetes.io/infra: ""
+    ruler:
+      nodeSelector:
+        node-role.kubernetes.io/infra: ""
+  tenants:
+    mode: openshift-logging
+  
+
+# oc get clf  collector -o yaml
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: collector
+  namespace: openshift-logging
+spec:
+  collector:
+    resources:
+      limits:
+        cpu: 500m
+        ephemeral-storage: 2Gi
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        ephemeral-storage: 2Gi
+        memory: 2Gi
+    tolerations:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+      operator: Exists
+  managementState: Managed
+  outputs:
+  - lokiStack:
+      authentication:
+        token:
+          from: serviceAccount
+      target:
+        name: logging-loki
+        namespace: openshift-logging
+    name: default-lokistack
+    tls:
+      ca:
+        configMapName: openshift-service-ca.crt
+        key: service-ca.crt
+    type: lokiStack
+  pipelines:
+  - inputRefs:
+    - infrastructure
+    - application
+    - audit
+    name: clusterlogs
+    outputRefs:
+    - default-lokistack
+  serviceAccount:
+    name: collector-account
+
+############################################################################## Observability 
+
+# oc get mco  observability -o yaml
+apiVersion: observability.open-cluster-management.io/v1beta2
+kind: MultiClusterObservability
+metadata:
+  name: observability
+spec:
+  enableDownsampling: true
+  observabilityAddonSpec:
+    enableMetrics: true
+    interval: 300
+    scrapeSizeLimitBytes: 1073741824
+    workers: 1
+  storageConfig:
+    alertmanagerStorageSize: 1Gi
+    compactStorageSize: 100Gi
+    metricObjectStorage:
+      key: thanos.yaml
+      name: thanos-object-storage
+    receiveStorageSize: 100Gi
+    ruleStorageSize: 1Gi
+    storageClass: gp2
+    storeStorageSize: 10Gi
+
+
+#################################### dpa
+
+# oc get backupschedule -o yaml -n open-cluster-management-backup
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: BackupSchedule
+metadata:
+  name: schedule-acm
+  namespace: open-cluster-management-backup
+spec:
+    veleroSchedule: 0 */6 * * *
+    veleroTtl: 120h
+    
+#################################################
+
+# oc get dpa -o yaml -n open-cluster-management-backup
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: acm-backup
+  namespace: open-cluster-management-backup
+spec:
+  backupLocations:
+  - velero:
+      config:
+        profile: default
+        region: us-east-1
+        s3ForcePathStyle: "true"
+        s3Url: http://endpoint:port
+      credential:
+        key: cloud
+        name: cloud-credentials
+      default: true
+      objectStorage:
+        bucket: <backup-bucket>
+        caCert: <if any>
+        prefix: velero
+      provider: aws
+  configuration:
+    nodeAgent:
+      enable: true
+      uploaderType: restic
+    velero:
+      defaultPlugins:
+      - openshift
+      - aws
+      - kubevirt
+
+
